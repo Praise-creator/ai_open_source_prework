@@ -31,6 +31,7 @@ class GameClient {
         this.loadWorldMap();
         this.setupEventListeners();
         this.connectToServer();
+        this.startRenderLoop();
     }
 
     setupCanvas() {
@@ -377,21 +378,42 @@ class GameClient {
         const width = avatarSize;
         const height = avatarSize / aspectRatio;
 
+        // Check for jump emote animation
+        const emote = this.playerEmotes.get(player.id);
+        let jumpOffset = 0;
+        if (emote && emote.type === 'jump') {
+            jumpOffset = this.calculateJumpOffset(emote);
+        }
+
         // Draw avatar
         this.ctx.save();
         
         // Flip horizontally for west direction
         if (player.facing === 'west') {
             this.ctx.scale(-1, 1);
-            this.ctx.drawImage(avatarImage, -screenPos.x - width/2, screenPos.y - height/2, width, height);
+            this.ctx.drawImage(avatarImage, -screenPos.x - width/2, screenPos.y - height/2 - jumpOffset, width, height);
         } else {
-            this.ctx.drawImage(avatarImage, screenPos.x - width/2, screenPos.y - height/2, width, height);
+            this.ctx.drawImage(avatarImage, screenPos.x - width/2, screenPos.y - height/2 - jumpOffset, width, height);
         }
         
         this.ctx.restore();
 
-        // Draw username label
-        this.drawPlayerLabel(player.username, screenPos.x, screenPos.y - height/2 - 5);
+        // Draw username label (adjust for jump)
+        this.drawPlayerLabel(player.username, screenPos.x, screenPos.y - height/2 - jumpOffset - 5);
+    }
+
+    calculateJumpOffset(emote) {
+        const elapsed = Date.now() - emote.startTime;
+        const progress = elapsed / emote.duration;
+        
+        if (progress >= 1) return 0;
+        
+        // Create 3 bounces using sine wave
+        const bounceProgress = (progress * emote.bounces) % 1;
+        const jumpHeight = 15; // Maximum jump height in pixels
+        const offset = Math.sin(bounceProgress * Math.PI) * jumpHeight;
+        
+        return offset;
     }
 
     drawPlayerLabel(username, x, y) {
@@ -451,7 +473,8 @@ class GameClient {
                     direction = 'right';
                     break;
                 case '1':
-                    this.sendEmoteCommand('jump');
+                    console.log('Key 1 pressed!');
+                    this.startLocalJumpAnimation();
                     return; // Don't process as movement
             }
             
@@ -484,6 +507,14 @@ class GameClient {
         this.ws.send(JSON.stringify(message));
     }
 
+    startLocalJumpAnimation() {
+        if (!this.myPlayerId) return;
+        
+        // Start jump animation for my player only (client-side)
+        this.startEmoteAnimation(this.myPlayerId, 'jump');
+        console.log('Started local jump animation!');
+    }
+
     sendEmoteCommand(emoteType) {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
         
@@ -495,6 +526,17 @@ class GameClient {
         
         this.ws.send(JSON.stringify(message));
         console.log(`Sent emote: ${emoteType}`);
+    }
+
+    startRenderLoop() {
+        const animate = () => {
+            // Only re-render if there are active emotes
+            if (this.playerEmotes.size > 0) {
+                this.render();
+            }
+            requestAnimationFrame(animate);
+        };
+        requestAnimationFrame(animate);
     }
 }
 
